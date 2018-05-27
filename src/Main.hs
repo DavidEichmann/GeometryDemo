@@ -68,10 +68,11 @@ mkConvexPolygon points
   | n >= 3 && hasCCW  = Just (ConvexPolygon points)
   | otherwise         = Nothing
   where
-    hasCCW = all [ crossZ (b - a) (c - b) > 0
+    n = length points
+    hasCCW = and [ crossZ (b - a) (c - b) > 0
                     | a <- last points : points
                     | b <- points
-                    | c <- tail pointa ++ [head points]
+                    | c <- tail points ++ [head points]
                     ]
 
 -- ####################
@@ -98,8 +99,10 @@ polygonToHalfSpaces = fmap edgeToHalfSpace . polygonToEdges  where
   edgeToHalfSpace :: Segment -> HalfSpace
   edgeToHalfSpace (Seg pA pB) = fromMaybe
     (error "Impossibility: ConvexPolygon's points contain no duplicate points")
-    (halfSpace pA (rotate90CW (pB - pA)))
-
+    (mkHalfSpace normal d)
+    where
+      normal = rotate90CW (pB - pA)
+      d = normal `dot` pA
 
 -- ##################
 -- # Contains Class #
@@ -125,8 +128,8 @@ instance Contains HalfSpace Point where
 
 --   [[ ConvexPolygon points `contains` p ]]
 --      = p `subsetOrEqual` Intersection of all [[ points ]]
---      = forall plane <- [[ points ]]. p `subsetOrEqual` plane
---      = forall plane <- [[ points ]]. [[ plane `contains` point ]]
+--      = forall halfSpace <- [[ points ]]. p `subsetOrEqual` halfSpace
+--      = forall halfSpace <- [[ points ]]. [[ halfSpace `contains` point ]]
 instance Contains ConvexPolygon Point where
   contains polygon point = all (`contains` point) (polygonToHalfSpaces polygon)
 
@@ -161,11 +164,11 @@ instance Contains HalfSpace Segment where
 instance Contains HalfSpace ConvexPolygon where
   contains halfSpace (ConvexPolygon points) = all (halfSpace `contains`) points
 
--- Using the instance Contains HalfSpace ConvexPolygon:
+-- Using the instance of Contains HalfSpace ConvexPolygon:
 --   [[ ConvexPolygon pointsA `contains` polygonB ]]
 --      = polygonB `subsetOrEqual` Intersection of all [[ pointsA ]]
---      = forall plane <- [[ pointsA ]]. polygonB `subsetOrEqual` plane
---      = forall plane <- [[ pointsA ]]. [[ plane `contains` polygonB ]]
+--      = forall halfSpace <- [[ pointsA ]]. polygonB `subsetOrEqual` halfSpace
+--      = forall halfSpace <- [[ pointsA ]]. [[ halfSpace `contains` polygonB ]]
 instance Contains ConvexPolygon ConvexPolygon where
   contains polygonA polygonB = all (`contains` polygonB) (polygonToHalfSpaces polygonA)
 
@@ -178,7 +181,7 @@ canonicalEq a b = a `contains` b && b `contains` a
 -- |Equality between Half spaces h1 and h2 requires that their inequalities are equivalent:
 --     a1 x + b1 y <= d1  <->  a2 x + b2 y <= d2
 -- This is true iff (a1,b1,d1) is some positive scale, s > 0, of (a2,b2,d2). Hence:
---     h1 == h2  <->  exists s s.t. s > 0, s a2 == a1, s b2 == b1, s d2 == d1
+--     h1 == h2  <->  exists s. s > 0, s a2 == a1, s b2 == b1, s d2 == d1
 -- This check solves for s using s == a1 / a2 or s == b1 / b2, then checks that the remaining
 -- conditions above hold. Note that at least one of a2 and b2 is non-zero as half space
 -- normals are non-zero.
@@ -191,16 +194,32 @@ instance Eq HalfSpace where
 instance Eq ConvexPolygon where
   (==) = canonicalEq
 
--- # Approximately Contains
-
+-- ##########################
+-- # Approximately Contains #
+-- ##########################
+-- Primitive a is said to approximately contain primitive b if all points in b are
+-- within tolerance distance of a.
+--   [[ approxContains tolerance a b ]]
+--      = forall pointB <- b. (min from pointA <- a of distance pointA pointB) <= tolerance
+--      = forall pointB <- b. in distance pointB a <= tolerance
 class ApproxContains a b where
   approxContains :: Rational -> a -> b -> Bool
 
 instance ApproxContains ConvexPolygon ConvexPolygon where
-  approxContains tolerance a b = distanceSq a b < tolerance * tolerance
+  -- |Consider the area where distance to polygon a <= tolerance. This area is an
+  -- expanded a with rounded perimeters at the vertices. Most importantly, the area
+  -- is convex, so we can apply similar logic to the instance of
+  -- Contains HalfSpace ConvexPolygon. It is sufficient to check that all
+  -- vertices of polygon b are within tolerance distance to a.
+  approxContains tolerance a (ConvexPolygon pointsB) = all (\pointB -> distanceSq pointB a <= toleranceSq) pointsB
+    where
+      toleranceSq = tolerance ^ 2
 
--- # Approximately Equal
-
+-- #######################
+-- # Approximately Equal #
+-- #######################
+--   [[ approxEq tolerance a b]]
+--      = approxContains tolerance a b && approxContains tolerance b a
 class ApproxEq a where
   approxEq :: Rational -> a -> a -> Bool
   default approxEq :: (ApproxContains a a) => Rational -> a -> a -> Bool
@@ -208,20 +227,28 @@ class ApproxEq a where
 
 instance ApproxEq ConvexPolygon
 
--- TODO DistanceSq
+-- ####################
+-- # Distance Squared #
+-- ####################
+-- This is always the minimum distance.
+--   [[ distanceSq a b ]] = (min pA <- a, pB <- b. distance pA pB) ^ 2
 class DistanceSq a b where
   distanceSq :: a -> b -> Rational
   default distanceSq :: DistanceSq b a => a -> b -> Rational
   distanceSq = flip distanceSq
 
+-- |Distance squared between points is just euclidian distance squared.
 instance DistanceSq Point Point where
   distanceSq a b = normSq (b - a)
 
 instance DistanceSq Segment Point
 instance DistanceSq Point Segment where
   distanceSq p (Seg a b)
+    -- Either the point on the segment closest to p is inbetween the end points...
     | behindA && behindB = (1 / normSq normal) * ((ap `dot` normal) ^ 2)
+    -- Or it is end point b...
     | behindA            = distanceSq p b
+    -- Else it is end point a...
     | otherwise          = distanceSq p a
     where
       ap = p - a

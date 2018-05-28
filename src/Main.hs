@@ -28,13 +28,13 @@ import Linear
 import Test.Tasty
 import Test.Tasty.HUnit
 
--- |A 2D vector.
-type Vector = V2 Rational
-
 -- ##############
 -- # Primitives #
 -- ##############
 -- The denotation of all primtives is a set of points.
+
+-- |A 2D vector.
+type Vector = V2 Rational
 
 -- |A single point in 2D space
 --   [[ V2 x y ]] = { (x,y) }
@@ -62,7 +62,7 @@ unsafeSeg a b = fromMaybe (error "Invalid Segment.") (mkSeg a b)
 -- |A half space. This is a binary division of 2D space along a line.
 -- All points on the line and on one side of the line are included in
 -- the half space. The normal is a non-zero vector perpendicular to the
--- line and points tward that side of the line that is NOT include in
+-- line and points tward the side of the line that is NOT include in
 -- half space. The d parameter defines the translation of the line along
 -- the normal.
 --
@@ -237,10 +237,10 @@ instance Eq ConvexPolygon where
 -- # Approximately Contains #
 -- ##########################
 -- Primitive a is said to approximately contain primitive b if all points in b are
--- within tolerance distance of a.
+-- within tolerance (minimum) distance of a.
 --   [[ approxContains tolerance a b ]]
---      = forall pointB <- b. (min from pointA <- a of distance pointA pointB) <= tolerance
 --      = forall pointB <- b. in distance pointB a <= tolerance
+--      = forall pointB <- b. (min from pointA <- a of distance pointA pointB) <= tolerance
 class ApproxContains a b where
   approxContains :: Rational -> a -> b -> Bool
 

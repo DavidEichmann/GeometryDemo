@@ -60,6 +60,12 @@ unsafeSeg :: Point -> Point -> Segment
 unsafeSeg a b = fromMaybe (error "Invalid Segment.") (mkSeg a b)
 
 -- |A half space. This is a binary division of 2D space along a line.
+-- All points on the line and on one side of the line are included in
+-- the half space. The normal is a non-zero vector perpendicular to the
+-- line and points tward that side of the line that is NOT include in
+-- half space. The d parameter defines the translation of the line along
+-- the normal.
+--
 --   [[ HalfSpace normal d ]]
 --      = { p | p <- R^2, p `dot` normal <= d }
 --        (normal /= 0)
@@ -75,10 +81,11 @@ unsafeHalfSpace :: Vector -> Rational -> HalfSpace
 unsafeHalfSpace normal d = fromMaybe (error "Invalid HalfSpace.") (mkHalfSpace normal d)
 
 -- |A convex polygon.
--- Represented as a list of vertices have the following constraints. 
+-- Represented as a list of vertices that have the following constraints. 
 -- Let n = length points and p_i = points !! (i mod n):
 --      n >= 3
---      forall i,j, 0 <= i < n, j /= i, j /= i+1. (p_i - p_j) `cross` (p_i+1 - p_i) > 0
+--      forall i,j, 0 <= i < n, j /= i, j /= i+1.
+--                  (p_i - p_j) `cross` (p_i+1 - p_i) > 0
 --
 -- This means there are at least 3 vertices and they are listed in counter
 -- clockwise (CCW) order. This imples that the polygon is convex, has
@@ -87,7 +94,9 @@ unsafeHalfSpace normal d = fromMaybe (error "Invalid HalfSpace.") (mkHalfSpace n
 --   [[ ConvexPolygon points ]]
 --      = Intersection of all [[ polygonToHalfSpaces (ConvexPolygon points) ]]
 --      (non-zero area)
--- where [[ points ]] is a set of half spaces (see polygonToHalfSpaces).
+--
+-- where [[ polygonToHalfSpaces (ConvexPolygon points) ]] is a set of half
+-- spaces (see polygonToHalfSpaces).
 newtype ConvexPolygon = ConvexPolygon { polygonPoints :: [Point] }
   deriving (Show)
 
@@ -237,11 +246,11 @@ class ApproxContains a b where
 
 instance ApproxContains ConvexPolygon ConvexPolygon where
   -- |Consider the area where distance to polygon a <= tolerance. This area is an
-  -- expanded a with rounded perimeters at the vertices. Most importantly, the area
+  -- expanded polygonA with rounded perimeters at the vertices. Most importantly, the area
   -- is convex, so we can apply similar logic to the instance of
-  -- Contains HalfSpace ConvexPolygon. It is sufficient to check that all
-  -- vertices of polygon b are within tolerance distance to a.
-  approxContains tolerance a (ConvexPolygon pointsB) = all (\pointB -> distanceSq pointB a <= toleranceSq) pointsB
+  -- Contains HalfSpace ConvexPolygon. Specifically, it is sufficient to check that all
+  -- vertices of polygonB are within tolerance distance to a.
+  approxContains tolerance polygonA (ConvexPolygon pointsB) = all (\pointB -> distanceSq pointB polygonA <= toleranceSq) pointsB
     where
       toleranceSq = tolerance ^ 2
 

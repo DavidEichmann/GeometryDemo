@@ -2,12 +2,31 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DefaultSignatures #-}
-{-# LANGUAGE ParallelListComp #-}
 
-module Main where
+module Main (
+  Vector,
+  Point,
+  Segment,
+  mkSeg,
+  unsafeSeg,
+  HalfSpace,
+  mkHalfSpace,
+  unsafeHalfSpace,
+  ConvexPolygon,
+  mkConvexPolygon,
+  unsafeConvexPolygon,
+  Contains(..),
+  DistanceSq(..),
+  ApproxEq(..),
+  main
+) where
 
 import Data.Maybe (fromMaybe)
+import Data.List (inits, tails)
 import Linear
+
+import Test.Tasty
+import Test.Tasty.HUnit
 
 -- |A 2D vector.
 type Vector = V2 Rational
@@ -25,39 +44,48 @@ type Vector = V2 Rational
 -- from the context. 
 type Point = Vector
 
--- |A non-zero length line segment.
+-- |A (non-zero length) line segment.
 --   [[ Seg a b ]]
 --      = { a + t (b - a) | t <- R, 0 <= t <= 1 }
 --        (a /= b)
 data Segment = Seg Point Point
+  deriving (Show)
 
-mkSegment :: Point -> Point -> Maybe Segment
-mkSegment a b
+mkSeg :: Point -> Point -> Maybe Segment
+mkSeg a b
   | a /= b     = Just (Seg a b)
   | otherwise  = Nothing
 
--- |A half space split by a line.
+unsafeSeg :: Point -> Point -> Segment
+unsafeSeg a b = fromMaybe (error "Invalid Segment.") (mkSeg a b)
+
+-- |A half space. This is a binary division of 2D space along a line.
 --   [[ HalfSpace normal d ]]
 --      = { p | p <- R^2, p `dot` normal <= d }
 --        (normal /= 0)
 data HalfSpace = HalfSpace Vector Rational
+  deriving (Show)
 
 mkHalfSpace :: Vector -> Rational -> Maybe HalfSpace
 mkHalfSpace normal d
   | normal /= 0  = Just (HalfSpace normal d)
   | otherwise    = Nothing
 
+unsafeHalfSpace :: Vector -> Rational -> HalfSpace
+unsafeHalfSpace normal d = fromMaybe (error "Invalid HalfSpace.") (mkHalfSpace normal d)
+
 -- |A convex polygon.
--- The points are the vertices of the polygon and have the following
--- constraints. Let n = length points and p_i = points !! (i mod n):
+-- Represented as a list of vertices have the following constraints. 
+-- Let n = length points and p_i = points !! (i mod n):
 --      n >= 3
---      points has counter clockwise (CCW) winding
---        <-> crossZ (p_i - p_i-1) (p_i+1 - p_i) > 0
---        --> no duplicate points and no colinear points
---      --> The polygon has non-zero area.
+--      forall i,j, 0 <= i < n, j /= i, j /= i+1. (p_i - p_j) `cross` (p_i+1 - p_i) > 0
+--
+-- This means there are at least 3 vertices and they are listed in counter
+-- clockwise (CCW) order. This imples that the polygon is convex, has
+-- non-zero area, and the list of points contains no duplicates.
 -- 
 --   [[ ConvexPolygon points ]]
---      = Intersection of all [[ points ]]
+--      = Intersection of all [[ polygonToHalfSpaces (ConvexPolygon points) ]]
 --      (non-zero area)
 -- where [[ points ]] is a set of half spaces (see polygonToHalfSpaces).
 newtype ConvexPolygon = ConvexPolygon { polygonPoints :: [Point] }
@@ -70,10 +98,12 @@ mkConvexPolygon points
   where
     n = length points
     hasCCW = and [ crossZ (b - a) (c - b) > 0
-                    | a <- last points : points
-                    | b <- points
-                    | c <- tail points ++ [head points]
+                    | a:b:cs <- init $ zipWith (++) (tails points) (inits points)
+                    , c <- cs
                     ]
+
+unsafeConvexPolygon :: [Point] -> ConvexPolygon
+unsafeConvexPolygon points = fromMaybe (error "Invalid ConvexPolygon.") (mkConvexPolygon points)
 
 -- ####################
 -- # Helper Functions #
@@ -301,5 +331,44 @@ instance DistanceSq ConvexPolygon ConvexPolygon where
 
 
 main :: IO ()
-main = do
-  putStrLn "TODO lets do some tests here!"
+main = defaultMain $ testGroup "Unit Tests"
+  [ testGroup "Eq ConvexPolygon"
+    [ testGroup "Equal"
+      [ testCase "Rotated point list 01" (let
+          polygonA = unsafeConvexPolygon [V2 0 0, V2 2 0, V2 1 1] 
+          polygonB = unsafeConvexPolygon [V2 2 0, V2 1 1, V2 0 0] 
+        in polygonA == polygonB @?= True) 
+      , testCase "Rotated point list 02" (let
+          polygonA = unsafeConvexPolygon [V2 0 0, V2 2 0, V2 2 2, V2 1 3, V2 0 2] 
+          polygonB = unsafeConvexPolygon [V2 1 3, V2 0 2, V2 0 0, V2 2 0, V2 2 2] 
+        in polygonA == polygonB @?= True) 
+      ]
+    , testGroup "Not Equal"
+      [ testCase "Slight difference 01" (let
+          polygonA = unsafeConvexPolygon [V2 0 0, V2 2 0, V2 1 1] 
+          polygonB = unsafeConvexPolygon [V2 2 0, V2 1 1, V2 0 1e-200] 
+        in polygonA == polygonB @?= False) 
+      , testCase "Missing vertex" (let
+          polygonA = unsafeConvexPolygon [V2 0 0, V2 2 0, V2 2 2, V2 1 3, V2 0 2] 
+          polygonB = unsafeConvexPolygon [V2 1 3, V2 0 2, V2 0 0, V2 2 2] 
+        in polygonA == polygonB @?= False) 
+      , testCase "Containing polygon" (let
+          polygonA = unsafeConvexPolygon [V2 0 0, V2 2 0, V2 2 2, V2 1 3, V2 0 2] 
+          polygonB = unsafeConvexPolygon [V2 1 3, V2 0 2, V2 0 0, V2 2 2] 
+        in polygonA == polygonB @?= False) 
+      ]
+    ]
+  , testGroup "Approximately Equal ConvexPolygon"
+    [ testCase "Similar polygon with sufficient tolerance." (let
+          polygonA = unsafeConvexPolygon [V2 0 0  , V2 2   2, V2 0 3  , V2 (-2  ) 2] 
+          polygonB = unsafeConvexPolygon [V2 0 0.1, V2 2.1 2, V2 0 3.1, V2 (-1.9) 2]
+          tolerance = 0.1
+      in approxEq tolerance polygonA polygonB @?= True)
+    , testCase "Contining polygon with insufficient tolerance." (let
+          polygonA = unsafeConvexPolygon [V2 0 0  , V2 2   2, V2 0 3  , V2 (-2  ) 2] 
+          polygonB = unsafeConvexPolygon [V2 0 0.1, V2 2.1 2, V2 0 3.1, V2 (-1.9) 2]
+          tolerance = 0.09
+      in approxEq tolerance polygonA polygonB @?= False)
+    ]
+  ]
+

@@ -92,11 +92,10 @@ unsafeHalfSpace normal d = fromMaybe (error "Invalid HalfSpace.") (mkHalfSpace n
 -- non-zero area, and the list of points contains no duplicates.
 -- 
 --   [[ ConvexPolygon points ]]
---      = Intersection of all [[ polygonToHalfSpaces (ConvexPolygon points) ]]
+--      = Intersection of all the polygon's half spaces
 --      (non-zero area)
 --
--- where [[ polygonToHalfSpaces (ConvexPolygon points) ]] is a set of half
--- spaces (see polygonToHalfSpaces).
+-- where the polygon's half spaces = [[ polygonToHalfSpaces (ConvexPolygon points) ]]
 newtype ConvexPolygon = ConvexPolygon { polygonPoints :: [Point] }
   deriving (Show)
 
@@ -165,10 +164,12 @@ instance Contains Point Point where
 instance Contains HalfSpace Point where
   contains (HalfSpace normal d) point = point `dot` normal <= d
 
---   [[ ConvexPolygon points `contains` p ]]
---      = p `subsetOrEqual` Intersection of all [[ points ]]
---      = forall halfSpace <- [[ points ]]. p `subsetOrEqual` halfSpace
---      = forall halfSpace <- [[ points ]]. [[ halfSpace `contains` point ]]
+--   [[ polygon `contains` p ]]
+--      = p `subsetOrEqual` (Intersection of all the polygon's half spaces)
+--      = for all halfSpace in (the polygon's half spaces).
+--            p `subsetOrEqual` halfSpace
+--      = for all halfSpace in [[ polygonToHalfSpaces (polygon) ]].
+--            [[ halfSpace `contains` point ]]
 instance Contains ConvexPolygon Point where
   contains polygon point = all (`contains` point) (polygonToHalfSpaces polygon)
 
@@ -373,9 +374,24 @@ main = defaultMain $ testGroup "Unit Tests"
           polygonB = unsafeConvexPolygon [V2 0 0.1, V2 2.1 2, V2 0 3.1, V2 (-1.9) 2]
           tolerance = 0.1
       in approxEq tolerance polygonA polygonB @?= True)
-    , testCase "Contining polygon with insufficient tolerance." (let
+    , testCase "Similar polygon with insufficient tolerance." (let
           polygonA = unsafeConvexPolygon [V2 0 0  , V2 2   2, V2 0 3  , V2 (-2  ) 2] 
           polygonB = unsafeConvexPolygon [V2 0 0.1, V2 2.1 2, V2 0 3.1, V2 (-1.9) 2]
+          tolerance = 0.09
+      in approxEq tolerance polygonA polygonB @?= False)
+    , testCase "Approximately equal polygons with different numbers of vertices." (let
+          polygonA = unsafeConvexPolygon [V2 0 0, V2 2 2, V2 0 3, V2 (-2) 2] 
+          polygonB = unsafeConvexPolygon [V2 0 0, V2 1.1 1, V2 2 2, V2 0.1 3, V2 0 3, V2 (-2) 2, V2 (-2) 1.9]
+          tolerance = 0.1
+      in approxEq tolerance polygonA polygonB @?= True)
+    , testCase "Approximately equal polygons with different numbers of vertices and no approximately equal vertices." (let
+          polygonA = unsafeConvexPolygon [V2 0 0, V2 5 0, V2 5 5, V2 0 5] 
+          polygonB = unsafeConvexPolygon [V2 (-0.1) 0.1, V2 0.1 (-0.1), V2 4.9 (-0.1), V2 5.1 0.1, V2 5.1 4.9, V2 4.9 5.1, V2 0.1 5.1, V2 (-0.1) 4.9]
+          tolerance = 0.1
+      in approxEq tolerance polygonA polygonB @?= True)
+    , testCase "Not Approximately equal polygons with different numbers of vertices and no approximately equal vertices." (let
+          polygonA = unsafeConvexPolygon [V2 0 0, V2 5 0, V2 5 5, V2 0 5] 
+          polygonB = unsafeConvexPolygon [V2 (-0.1) 0.1, V2 0.1 (-0.1), V2 4.9 (-0.1), V2 5.1 0.1, V2 5.1 4.9, V2 4.9 5.1, V2 0.1 5.1, V2 (-0.1) 4.9]
           tolerance = 0.09
       in approxEq tolerance polygonA polygonB @?= False)
     ]

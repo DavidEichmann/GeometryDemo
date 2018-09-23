@@ -23,7 +23,7 @@ module Main (
 
 import Data.Maybe (fromMaybe)
 import Data.List (inits, tails)
-import Linear
+-- import Linear
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -34,7 +34,7 @@ import Test.Tasty.HUnit
 -- The denotation of all primtives is a set of points.
 
 -- |A 2D vector.
-type Vector = V2 Rational
+type Vector = (Double, Double)
 
 -- |A single point in 2D space
 --   [[ V2 x y ]] = { (x,y) }
@@ -42,7 +42,7 @@ type Vector = V2 Rational
 --   [[ V2 x y ]] = (x,y)
 -- Which denotation is being used should always be clear
 -- from the context. 
-type Point = Vector
+type Point = (Double, Double)
 
 -- |A (non-zero length) line segment.
 --   [[ Seg a b ]]
@@ -69,15 +69,15 @@ unsafeSeg a b = fromMaybe (error "Invalid Segment.") (mkSeg a b)
 --   [[ HalfSpace normal d ]]
 --      = { p | p <- R^2, p `dot` normal <= d }
 --        (normal /= 0)
-data HalfSpace = HalfSpace Vector Rational
+data HalfSpace = HalfSpace Vector Double
   deriving (Show)
 
-mkHalfSpace :: Vector -> Rational -> Maybe HalfSpace
+mkHalfSpace :: Vector -> Double -> Maybe HalfSpace
 mkHalfSpace normal d
   | normal /= 0  = Just (HalfSpace normal d)
   | otherwise    = Nothing
 
-unsafeHalfSpace :: Vector -> Rational -> HalfSpace
+unsafeHalfSpace :: Vector -> Double -> HalfSpace
 unsafeHalfSpace normal d = fromMaybe (error "Invalid HalfSpace.") (mkHalfSpace normal d)
 
 -- |A convex polygon.
@@ -117,14 +117,29 @@ unsafeConvexPolygon points = fromMaybe (error "Invalid ConvexPolygon.") (mkConve
 -- # Helper Functions #
 -- ####################
 
-normSq :: Vector -> Rational
+dot :: (Double, Double) -> (Double, Double) -> Double
+dot (x1, y1) (x2, y2) = (x1 * x2) + (y1 * y2)
+
+crossZ :: (Double, Double) -> (Double, Double) -> Double
+crossZ (x1, y1) (x2, y2) = (x1 * y2) - (x2 * y1)
+
+normSq :: Vector -> Double
 normSq v = v `dot` v
 
 rotate90CW :: Vector -> Vector
-rotate90CW (V2 x y) = V2 y (-x)
+rotate90CW (x, y) = (y, -x)
 
 polygonToEdges :: ConvexPolygon -> [Segment]
 polygonToEdges (ConvexPolygon ps) = zipWith Seg ps (tail ps ++ [head ps])
+
+instance Num (Double, Double) where
+  (+) (x1, y1) (x2, y2) = (x1 + x2, y1 + y2)
+  (-) (x1, y1) (x2, y2) = (x1 - x2, y1 - y2)
+  (*) (x1, y1) (x2, y2) = (x1 * x2, y1 * y2)
+  abs (x, y) = (abs x, abs y)
+  signum (x, y) = (signum x, signum y)
+  fromInteger i = (fromInteger i, fromInteger i)
+  
 
 -- |Each edge (p_i, p_i+1) of a polygon represents a half space.
 -- Both p_i and p_i+1 lie on the line defining that half space.
@@ -152,7 +167,7 @@ polygonToHalfSpaces = fmap edgeToHalfSpace . polygonToEdges  where
 class Contains a b where
   contains :: a -> b -> Bool
 
---   [[ V2 x1 y1 `contains` V2 x2 y2 ]]
+--   [[ (x1, y1) `contains` (x2, y2) ]]
 --      = { (x1,y1) } `subsetOrEqual` { (x2,y2) }
 --      = (x1,y1) == (x2,y2)
 instance Contains Point Point where
@@ -226,7 +241,7 @@ canonicalEq a b = a `contains` b && b `contains` a
 -- conditions above hold. Note that at least one of a2 and b2 is non-zero as half space
 -- normals are non-zero.
 instance Eq HalfSpace where
-  (HalfSpace (V2 a1 b1) d1) == (HalfSpace (V2 a2 b2) d2)
+  (HalfSpace (a1, b1) d1) == (HalfSpace (a2, b2) d2)
     | a2 /= 0   = let s = a1 / a2 in s > 0 && s * b2 == b1 && s * d2 == d1
     | otherwise = let s = b1 / b2 in s > 0 && s * a2 == a1 && s * d2 == d1
 
@@ -243,7 +258,7 @@ instance Eq ConvexPolygon where
 --      = forall pointB <- b. in distance pointB a <= tolerance
 --      = forall pointB <- b. (min from pointA <- a of distance pointA pointB) <= tolerance
 class ApproxContains a b where
-  approxContains :: Rational -> a -> b -> Bool
+  approxContains :: Double -> a -> b -> Bool
 
 instance ApproxContains ConvexPolygon ConvexPolygon where
   -- |Consider the area where distance to polygon a <= tolerance. This area is an
@@ -261,8 +276,8 @@ instance ApproxContains ConvexPolygon ConvexPolygon where
 --   [[ approxEq tolerance a b]]
 --      = approxContains tolerance a b && approxContains tolerance b a
 class ApproxEq a where
-  approxEq :: Rational -> a -> a -> Bool
-  default approxEq :: (ApproxContains a a) => Rational -> a -> a -> Bool
+  approxEq :: Double -> a -> a -> Bool
+  default approxEq :: (ApproxContains a a) => Double -> a -> a -> Bool
   approxEq tolerance a b = approxContains tolerance a b && approxContains tolerance b a
 
 instance ApproxEq ConvexPolygon
@@ -273,8 +288,8 @@ instance ApproxEq ConvexPolygon
 -- This is always the minimum distance.
 --   [[ distanceSq a b ]] = (min pA <- a, pB <- b. distance pA pB) ^ 2
 class DistanceSq a b where
-  distanceSq :: a -> b -> Rational
-  default distanceSq :: DistanceSq b a => a -> b -> Rational
+  distanceSq :: a -> b -> Double
+  default distanceSq :: DistanceSq b a => a -> b -> Double
   distanceSq = flip distanceSq
 
 -- |Distance squared between points is just euclidian distance squared.
@@ -345,53 +360,53 @@ main = defaultMain $ testGroup "Unit Tests"
   [ testGroup "Eq ConvexPolygon"
     [ testGroup "Equal"
       [ testCase "Rotated point list 01" (let
-          polygonA = unsafeConvexPolygon [V2 0 0, V2 2 0, V2 1 1] 
-          polygonB = unsafeConvexPolygon [V2 2 0, V2 1 1, V2 0 0] 
+          polygonA = unsafeConvexPolygon [(0, 0), (2, 0), (1, 1)] 
+          polygonB = unsafeConvexPolygon [(2, 0), (1, 1), (0, 0)] 
         in polygonA == polygonB @?= True) 
       , testCase "Rotated point list 02" (let
-          polygonA = unsafeConvexPolygon [V2 0 0, V2 2 0, V2 2 2, V2 1 3, V2 0 2] 
-          polygonB = unsafeConvexPolygon [V2 1 3, V2 0 2, V2 0 0, V2 2 0, V2 2 2] 
+          polygonA = unsafeConvexPolygon [(0, 0), (2, 0), (2, 2), (1, 3), (0, 2)] 
+          polygonB = unsafeConvexPolygon [(1, 3), (0, 2), (0, 0), (2, 0), (2, 2)] 
         in polygonA == polygonB @?= True) 
       ]
     , testGroup "Not Equal"
       [ testCase "Slight difference 01" (let
-          polygonA = unsafeConvexPolygon [V2 0 0, V2 2 0, V2 1 1] 
-          polygonB = unsafeConvexPolygon [V2 2 0, V2 1 1, V2 0 1e-200] 
+          polygonA = unsafeConvexPolygon [(0, 0), (2, 0), (1, 1)] 
+          polygonB = unsafeConvexPolygon [(2, 0), (1, 1), (0, 1e-10)] 
         in polygonA == polygonB @?= False) 
       , testCase "Missing vertex" (let
-          polygonA = unsafeConvexPolygon [V2 0 0, V2 2 0, V2 2 2, V2 1 3, V2 0 2] 
-          polygonB = unsafeConvexPolygon [V2 1 3, V2 0 2, V2 0 0, V2 2 2] 
+          polygonA = unsafeConvexPolygon [(0, 0), (2, 0), (2, 2), (1, 3), (0, 2)] 
+          polygonB = unsafeConvexPolygon [(1, 3), (0, 2), (0, 0), (2, 2)] 
         in polygonA == polygonB @?= False) 
       , testCase "Containing polygon" (let
-          polygonA = unsafeConvexPolygon [V2 0 0, V2 2 0, V2 2 2, V2 1 3, V2 0 2] 
-          polygonB = unsafeConvexPolygon [V2 1 3, V2 0 2, V2 0 0, V2 2 2] 
+          polygonA = unsafeConvexPolygon [(0, 0), (2, 0), (2, 2), (1, 3), (0, 2)] 
+          polygonB = unsafeConvexPolygon [(1, 3), (0, 2), (0, 0), (2, 2)] 
         in polygonA == polygonB @?= False) 
       ]
     ]
   , testGroup "Approximately Equal ConvexPolygon"
     [ testCase "Similar polygon with sufficient tolerance." (let
-          polygonA = unsafeConvexPolygon [V2 0 0  , V2 2   2, V2 0 3  , V2 (-2  ) 2] 
-          polygonB = unsafeConvexPolygon [V2 0 0.1, V2 2.1 2, V2 0 3.1, V2 (-1.9) 2]
-          tolerance = 0.1
+          polygonA = unsafeConvexPolygon [(0, 0)  , (2,   2), (0, 3)  , (-2,   2)] 
+          polygonB = unsafeConvexPolygon [(0, 0.1), (2.1, 2), (0, 3.1), (-1.9, 2)]
+          tolerance = 0.1001
       in approxEq tolerance polygonA polygonB @?= True)
     , testCase "Similar polygon with insufficient tolerance." (let
-          polygonA = unsafeConvexPolygon [V2 0 0  , V2 2   2, V2 0 3  , V2 (-2  ) 2] 
-          polygonB = unsafeConvexPolygon [V2 0 0.1, V2 2.1 2, V2 0 3.1, V2 (-1.9) 2]
+          polygonA = unsafeConvexPolygon [(0, 0)  , (2,   2), (0, 3)  , (-2,   2)] 
+          polygonB = unsafeConvexPolygon [(0, 0.1), (2.1, 2), (0, 3.1), (-1.9, 2)]
           tolerance = 0.09
       in approxEq tolerance polygonA polygonB @?= False)
     , testCase "Approximately equal polygons with different numbers of vertices." (let
-          polygonA = unsafeConvexPolygon [V2 0 0, V2 2 2, V2 0 3, V2 (-2) 2] 
-          polygonB = unsafeConvexPolygon [V2 0 0, V2 1.1 1, V2 2 2, V2 0.1 3, V2 0 3, V2 (-2) 2, V2 (-2) 1.9]
+          polygonA = unsafeConvexPolygon [(0, 0), (2, 2), (0, 3), (-2, 2)] 
+          polygonB = unsafeConvexPolygon [(0, 0), (1.1, 1), (2, 2), (0.1, 3), (0, 3), (-2, 2), (-2, 1.9)]
           tolerance = 0.1
       in approxEq tolerance polygonA polygonB @?= True)
     , testCase "Approximately equal polygons with different numbers of vertices and no approximately equal vertices." (let
-          polygonA = unsafeConvexPolygon [V2 0 0, V2 5 0, V2 5 5, V2 0 5] 
-          polygonB = unsafeConvexPolygon [V2 (-0.1) 0.1, V2 0.1 (-0.1), V2 4.9 (-0.1), V2 5.1 0.1, V2 5.1 4.9, V2 4.9 5.1, V2 0.1 5.1, V2 (-0.1) 4.9]
+          polygonA = unsafeConvexPolygon [(0, 0), (5, 0), (5, 5), (0, 5)] 
+          polygonB = unsafeConvexPolygon [(-0.1, 0.1), (0.1, -0.1), (4.9, -0.1), (5.1, 0.1), (5.1, 4.9), (4.9, 5.1), (0.1, 5.1), (-0.1, 4.9)]
           tolerance = 0.1
       in approxEq tolerance polygonA polygonB @?= True)
     , testCase "Not Approximately equal polygons with different numbers of vertices and no approximately equal vertices." (let
-          polygonA = unsafeConvexPolygon [V2 0 0, V2 5 0, V2 5 5, V2 0 5] 
-          polygonB = unsafeConvexPolygon [V2 (-0.1) 0.1, V2 0.1 (-0.1), V2 4.9 (-0.1), V2 5.1 0.1, V2 5.1 4.9, V2 4.9 5.1, V2 0.1 5.1, V2 (-0.1) 4.9]
+          polygonA = unsafeConvexPolygon [(0, 0), (5, 0), (5, 5), (0, 5)] 
+          polygonB = unsafeConvexPolygon [(-0.1, 0.1), (0.1, -0.1), (4.9, -0.1), (5.1, 0.1), (5.1, 4.9), (4.9, 5.1), (0.1, 5.1), (-0.1, 4.9)]
           tolerance = 0.09
       in approxEq tolerance polygonA polygonB @?= False)
     ]

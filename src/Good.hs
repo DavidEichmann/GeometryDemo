@@ -3,27 +3,12 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DefaultSignatures #-}
 
-module Main (
-  Vector,
-  Point,
-  Segment,
-  mkSeg,
-  unsafeSeg,
-  HalfSpace,
-  mkHalfSpace,
-  unsafeHalfSpace,
-  ConvexPolygon,
-  mkConvexPolygon,
-  unsafeConvexPolygon,
-  Contains(..),
-  DistanceSq(..),
-  ApproxEq(..),
-  main
-) where
+module Main where
+
+import Math
 
 import Data.Maybe (fromMaybe)
 import Data.List (inits, tails)
--- import Linear
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -85,7 +70,7 @@ unsafeHalfSpace normal d = fromMaybe (error "Invalid HalfSpace.") (mkHalfSpace n
 -- Let n = length points and p_i = points !! (i mod n):
 --      n >= 3
 --      forall i,j, 0 <= i < n, j /= i, j /= i+1.
---                  (p_i - p_j) `cross` (p_i+1 - p_i) > 0
+--                  (p_i+1 - p_i) `cross` (p_j - p_i+1) > 0
 --
 -- This means there are at least 3 vertices and they are listed in counter
 -- clockwise (CCW) order. This imples that the polygon is convex, has
@@ -113,33 +98,8 @@ mkConvexPolygon points
 unsafeConvexPolygon :: [Point] -> ConvexPolygon
 unsafeConvexPolygon points = fromMaybe (error "Invalid ConvexPolygon.") (mkConvexPolygon points)
 
--- ####################
--- # Helper Functions #
--- ####################
-
-dot :: (Double, Double) -> (Double, Double) -> Double
-dot (x1, y1) (x2, y2) = (x1 * x2) + (y1 * y2)
-
-crossZ :: (Double, Double) -> (Double, Double) -> Double
-crossZ (x1, y1) (x2, y2) = (x1 * y2) - (x2 * y1)
-
-normSq :: Vector -> Double
-normSq v = v `dot` v
-
-rotate90CW :: Vector -> Vector
-rotate90CW (x, y) = (y, -x)
-
 polygonToEdges :: ConvexPolygon -> [Segment]
 polygonToEdges (ConvexPolygon ps) = zipWith Seg ps (tail ps ++ [head ps])
-
-instance Num (Double, Double) where
-  (+) (x1, y1) (x2, y2) = (x1 + x2, y1 + y2)
-  (-) (x1, y1) (x2, y2) = (x1 - x2, y1 - y2)
-  (*) (x1, y1) (x2, y2) = (x1 * x2, y1 * y2)
-  abs (x, y) = (abs x, abs y)
-  signum (x, y) = (signum x, signum y)
-  fromInteger i = (fromInteger i, fromInteger i)
-  
 
 -- |Each edge (p_i, p_i+1) of a polygon represents a half space.
 -- Both p_i and p_i+1 lie on the line defining that half space.

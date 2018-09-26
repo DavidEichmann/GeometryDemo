@@ -31,8 +31,8 @@ type Point = (Double, Double)
 
 -- |A (non-zero length) line segment.
 --   [[ Seg a b ]]
---      = { a + t (b - a) | t <- R, 0 <= t <= 1 }
---        (a /= b)
+--      = { a + t (b - a) | t ∈ [0, 1] }
+--        (a ≠ b)
 data Segment = Seg Point Point
   deriving (Show)
 
@@ -49,28 +49,37 @@ unsafeSeg a b = fromMaybe (error "Invalid Segment.") (mkSeg a b)
 -- the half space. The normal is a non-zero vector perpendicular to the
 -- line and points tward the side of the line that is NOT include in
 -- half space. The d parameter defines the translation of the line along
--- the normal.
+-- the normal from the origin.
 --
 --   [[ HalfSpace normal d ]]
---      = { p | p <- R^2, p `dot` normal <= d }
---        (normal /= 0)
+--      = { p | p ∈ ℝ², p ⋅ normal ⩽ d }
+--        (normal ≠ 0)
 data HalfSpace = HalfSpace Vector Double
   deriving (Show)
 
 mkHalfSpace :: Vector -> Double -> Maybe HalfSpace
 mkHalfSpace normal d
-  | normal /= 0  = Just (HalfSpace normal d)
+  | normal ≠ 0  = Just (HalfSpace normal d)
   | otherwise    = Nothing
 
 unsafeHalfSpace :: Vector -> Double -> HalfSpace
 unsafeHalfSpace normal d = fromMaybe (error "Invalid HalfSpace.") (mkHalfSpace normal d)
 
 -- |A convex polygon.
--- Represented as a list of vertices that have the following constraints. 
+-- ℝepresented as a list of vertices that have the following constraints. 
 -- Let n = length points and p_i = points !! (i mod n):
---      n >= 3
---      forall i,j, 0 <= i < n, j /= i, j /= i+1.
---                  (p_i+1 - p_i) `cross` (p_j - p_i+1) > 0
+--      n ⩾ 3
+--      forall i,j ∈ [0, n], j ≠ i, j ≠ i+1.
+--                  (p_(i+1 mod n) - p_i) `crossZ` (p_j - p_(i+1 mod n)) > 0
+
+
+-- TODO
+-- I think maybe just list: n >= 3 && inner angles < 180 && not self intersecting
+-- ==> implies the edges are really on the perimeter of the polygon.
+-- Also I think it is important to be clear about denotation vs invariants:
+-- representation gives half spaces -> polygon is intersection of half spaces.
+--   -> we have invariants listed above that ensure this is a simple polygon.
+
 --
 -- This means there are at least 3 vertices and they are listed in counter
 -- clockwise (CCW) order. This imples that the polygon is convex, has
@@ -103,7 +112,7 @@ polygonToEdges (ConvexPolygon ps) = zipWith Seg ps (tail ps ++ [head ps])
 
 -- |Each edge (p_i, p_i+1) of a polygon represents a half space.
 -- Both p_i and p_i+1 lie on the line defining that half space.
--- There are no duplicate points so p_i /= p_i+1.
+-- There are no duplicate points so p_i ≠ p_i+1.
 -- Due to counter clockwise winding, the normal must face to the right of the
 -- edge (relative to walking from p_i to p_i+1). This means the normal faces out
 -- of the polygon.
@@ -115,86 +124,113 @@ polygonToHalfSpaces = fmap edgeToHalfSpace . polygonToEdges  where
     (mkHalfSpace normal d)
     where
       normal = rotate90CW (pB - pA)
-      d = normal `dot` pA
+      d = normal ⋅ pA
 
 -- ##################
 -- # Contains Class #
 -- ##################
 -- As all primitives denote point sets, [[ contains ]] is naturally defined
 -- as set containment:
---     [[ a `contains` b ]] = [[b]] `subsetOrEqual` [[a]]
+--     [[ a `contains` b ]] = [[b]] ⊆ [[a]]
 -- Note this implies that all primitives contain themselves (a `contains` a == true)
 class Contains a b where
   contains :: a -> b -> Bool
 
 --   [[ (x1, y1) `contains` (x2, y2) ]]
---      = { (x1,y1) } `subsetOrEqual` { (x2,y2) }
---      = (x1,y1) == (x2,y2)
+--      = { (x2,y2) } ⊆ { (x1,y1) }
+--      =    (x2,y2) == (x1,y1)
+--      = [[ (x2,y2) == (x1,y1) ]]
 instance Contains Point Point where
   contains = (==)
 
 --   [[ HalfSpace normal d `contains` point ]]
---      = point `subsetOrEqual` { p | p <- R^2, p `dot` normal <= d }
---      = point `dot` normal <= d
+--      = point ⊆ { p | p ∈ ℝ², p ⋅ normal ⩽ d }
+--      = point ⋅ normal ⩽ d
 instance Contains HalfSpace Point where
-  contains (HalfSpace normal d) point = point `dot` normal <= d
+  contains (HalfSpace normal d) point = point ⋅ normal <= d
 
 --   [[ polygon `contains` p ]]
---      = p `subsetOrEqual` (Intersection of all the polygon's half spaces)
---      = for all halfSpace in (the polygon's half spaces).
---            p `subsetOrEqual` halfSpace
---      = for all halfSpace in [[ polygonToHalfSpaces (polygon) ]].
---            [[ halfSpace `contains` point ]]
+--      = p ⊆ Intersection of all the polygon's half spaces
+--      = for all halfSpace ∈ the polygon's half spaces.
+--            p ⊆ halfSpace
+--      = for all halfSpace ∈ polygonToHalfSpaces polygon.
+--            p ⊆ halfSpace
 instance Contains ConvexPolygon Point where
   contains polygon point = all (`contains` point) (polygonToHalfSpaces polygon)
 
+
+-- TODO
+-- You'll probably want to simply use the property that
+--    convex S <-> (a ∈ S && b ∈ S  <->  (Seg a b) ⊆ S)
+-- and we "know" intuitively that half spaces are convex
+-- Do you want to frame this with (you can / I did also solve this
+-- from denotation / first principle and arrived at the above double implication)
+
 --   [[ HalfSpace normal d `contains` Seg a b ]]
---      = forall p <- { a + t (b - a) | t <- R, 0 <= t <= 1 }.
---                 p `elementOf` { p | p <- R^2, p `dot` normal <= d }
---      = forall t <- R, 0 <= t <= 1.
---                 (a + t (b - a)) `dot` normal <= d
---      = forall t <- R, 0 <= t <= 1.
---                 t ((b - a) `dot` normal) <= d - (a  `dot` normal)
---      = forall t <- R, 0 <= t <= 1.
---                 t            u           <=         v
+--      = forall p ∈ { a + t (b - a) | t ∈ [0, 1] }.
+--                 p `elementOf` { p | p ∈ ℝ², p ⋅ normal ⩽ d }
+--      = forall t ∈ [0, 1].
+--                 (a + t (b - a)) ⋅ normal ⩽ d
+--      = forall t ∈ [0, 1].
+--                 t ((b - a) ⋅ normal) ⩽ d - (a  ⋅ normal)
+--      = forall t ∈ [0, 1].
+--                 t          u         ⩽         v
 --   As u and v are constant, it is clear that we must only check the
 --   inequality holds for t = 0 and t = 1.
---      = 0 <= v && u <= v
+--      = 0 ⩽ v && u ⩽ v
 --   This is equivalent to checking that the half space contains point a and b
 --      =  HalfSpace normal d `contains` a  &&  HalfSpace normal d `contains` b
 instance Contains HalfSpace Segment where
   contains halfSpace (Seg a b) = halfSpace `contains` a && halfSpace `contains` b
 
+
+-- TODO elaborate on proof that vertices imply the internal points of the polygon.
+-- Maybe scetch a proof:
+--   obvious that the points imply the perimeter
+--   then use the fact that internal points are "surounded" by the perimeter to show
+--      that the perimeter implies the internal points.
+
 -- As convex polygons are convex, all points in the polygon can be intersected by
 -- creating a segment from 2 points on the perimeter of the polyon. This is a 2 way implication
 -- so gives an equivalent denotation of:
 --   [[ ConvexPolygon points ]]
---      = Union of [[ Seg a b ]] forall a,b <- [[ polygonToEdges (ConvexPolygon points) ]]
+--      = Union of [[ Seg a b ]] forall a,b ∈ [[ polygonToEdges (ConvexPolygon points) ]]
 -- It is established at the "Contains HalfSpace Segment" instance that
 --      halfSpace `contains` a && halfSpace `contains` b  <->  halfSpace `contains` (Seg a b)
 -- hence here we can simply check that the half space contains all polygon vertices:
 --   [[ HalfSpace normal d `contains` ConvexPolygon points ]]
---      = halfSpace `contains` edge  forall edge <- [[ polygonToEdges (ConvexPolygon points) ]] 
---      = halfSpace `contains` point forall point <- points
+--      = halfSpace `contains` edge  forall edge ∈ [[ polygonToEdges (ConvexPolygon points) ]] 
+--      = halfSpace `contains` point forall point ∈ points
 instance Contains HalfSpace ConvexPolygon where
   contains halfSpace (ConvexPolygon points) = all (halfSpace `contains`) points
 
+
+-- TODO maybe continue with the fact that the previous proof only requires that the halfspace
+--    is convex. ConvexPolygon is also convex, so can just check that it contains all points:
+--       contains polygonA (ConvexPolygon ps) = all (polygonA `contains`) ps
+
 -- Using the instance of Contains HalfSpace ConvexPolygon:
 --   [[ ConvexPolygon pointsA `contains` polygonB ]]
---      = polygonB `subsetOrEqual` Intersection of all [[ pointsA ]]
---      = forall halfSpace <- [[ pointsA ]]. polygonB `subsetOrEqual` halfSpace
---      = forall halfSpace <- [[ pointsA ]]. [[ halfSpace `contains` polygonB ]]
+--      = polygonB ⊆ Intersection of all [[ pointsA ]]
+--      = forall halfSpace ∈ [[ pointsA ]]. polygonB ⊆ halfSpace
+--      = forall halfSpace ∈ [[ pointsA ]]. [[ halfSpace `contains` polygonB ]]
 instance Contains ConvexPolygon ConvexPolygon where
   contains polygonA polygonB = all (`contains` polygonB) (polygonToHalfSpaces polygonA)
 
+
+---------------------------------
+--          EQUALITY           --
+---------------------------------
+
+
 -- |As primitives denote point sets, equality is simply set equality. Hence:
---     a == b  <->  a `subsetOrEqual` b && b `subsetOrEqual` a
+--     a == b  <->  a ⊆ b && b ⊆ a
 -- In this case subsetOrEqual is just the contains method.
 canonicalEq :: (Contains a a) => a -> a -> Bool
 canonicalEq a b = a `contains` b && b `contains` a
 
 -- |Equality between Half spaces h1 and h2 requires that their inequalities are equivalent:
---     a1 x + b1 y <= d1  <->  a2 x + b2 y <= d2
+--     a1 x + b1 y ⩽ d1  <->  a2 x + b2 y ⩽ d2
 -- This is true iff (a1,b1,d1) is some positive scale, s > 0, of (a2,b2,d2). Hence:
 --     h1 == h2  <->  exists s. s > 0, s a2 == a1, s b2 == b1, s d2 == d1
 -- This check solves for s using s == a1 / a2 or s == b1 / b2, then checks that the remaining
@@ -215,13 +251,13 @@ instance Eq ConvexPolygon where
 -- Primitive a is said to approximately contain primitive b if all points in b are
 -- within tolerance (minimum) distance of a.
 --   [[ approxContains tolerance a b ]]
---      = forall pointB <- b. in distance pointB a <= tolerance
---      = forall pointB <- b. (min from pointA <- a of distance pointA pointB) <= tolerance
+--      = forall pointB ∈ b. in distance pointB a ⩽ tolerance
+--      = forall pointB ∈ b. (min from pointA ∈ a of distance pointA pointB) ⩽ tolerance
 class ApproxContains a b where
   approxContains :: Double -> a -> b -> Bool
 
 instance ApproxContains ConvexPolygon ConvexPolygon where
-  -- |Consider the area where distance to polygon a <= tolerance. This area is an
+  -- |Consider the area where distance to polygon a ⩽ tolerance. This area is an
   -- expanded polygonA with rounded perimeters at the vertices. Most importantly, the area
   -- is convex, so we can apply similar logic to the instance of
   -- Contains HalfSpace ConvexPolygon. Specifically, it is sufficient to check that all
@@ -230,23 +266,11 @@ instance ApproxContains ConvexPolygon ConvexPolygon where
     where
       toleranceSq = tolerance ^ 2
 
--- #######################
--- # Approximately Equal #
--- #######################
---   [[ approxEq tolerance a b]]
---      = approxContains tolerance a b && approxContains tolerance b a
-class ApproxEq a where
-  approxEq :: Double -> a -> a -> Bool
-  default approxEq :: (ApproxContains a a) => Double -> a -> a -> Bool
-  approxEq tolerance a b = approxContains tolerance a b && approxContains tolerance b a
-
-instance ApproxEq ConvexPolygon
-
 -- ####################
 -- # Distance Squared #
 -- ####################
 -- This is always the minimum distance.
---   [[ distanceSq a b ]] = (min pA <- a, pB <- b. distance pA pB) ^ 2
+--   [[ distanceSq a b ]] = (min pA ∈ a, pB ∈ b. distance pA pB) ^ 2
 class DistanceSq a b where
   distanceSq :: a -> b -> Double
   default distanceSq :: DistanceSq b a => a -> b -> Double
@@ -260,7 +284,7 @@ instance DistanceSq Segment Point
 instance DistanceSq Point Segment where
   distanceSq p (Seg a b)
     -- Either the point on the segment closest to p is inbetween the end points...
-    | behindA && behindB = (1 / normSq normal) * ((ap `dot` normal) ^ 2)
+    | behindA && behindB = (1 / normSq normal) * ((ap ⋅ normal) ^ 2)
     -- Or it is end point b...
     | behindA            = distanceSq p b
     -- Else it is end point a...
@@ -269,8 +293,8 @@ instance DistanceSq Point Segment where
       ap = p - a
       segDir = b - a
       normal = rotate90CW segDir
-      behindA = (p - a) `dot` segDir > 0
-      behindB = (p - b) `dot` segDir < 0
+      behindA = (p - a) ⋅ segDir > 0
+      behindB = (p - b) ⋅ segDir < 0
 
 instance DistanceSq Segment Segment where
   distanceSq a@(Seg a1 a2) b@(Seg b1 b2)
@@ -314,6 +338,18 @@ instance DistanceSq ConvexPolygon ConvexPolygon where
                   || any (polygonB `contains`) (polygonPoints polygonA)
 
 
+
+-- #######################
+-- # Approximately Equal #
+-- #######################
+--   [[ approxEq tolerance a b]]
+--      = approxContains tolerance a b && approxContains tolerance b a
+class ApproxEq a where
+  approxEq :: Double -> a -> a -> Bool
+  default approxEq :: (ApproxContains a a) => Double -> a -> a -> Bool
+  approxEq tolerance a b = approxContains tolerance a b && approxContains tolerance b a
+
+instance ApproxEq ConvexPolygon
 
 main :: IO ()
 main = defaultMain $ testGroup "Unit Tests"
